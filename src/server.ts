@@ -124,11 +124,16 @@ export class CodexMCPServer {
           ],
         };
       } else {
+        const error = codexResult.error;
+        const errorText = error
+          ? `${error.message}${error.details ? `\n\nDetails: ${error.details}` : ''}\n\nError Code: ${error.code}`
+          : 'Unknown error';
+
         return {
           content: [
             {
               type: 'text',
-              text: `Codex generation failed: ${codexResult.error}`,
+              text: `Codex generation failed: ${errorText}`,
             },
           ],
           isError: true,
