@@ -1,0 +1,64 @@
+{
+  "name": "@junyjeon/claude-codex-orchestrator",
+  "version": "0.1.0",
+  "description": "MCP tool providing Claude Code access to Codex CLI (GPT-5) for code generation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "claude-codex-orchestrator": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "gpt5",
+    "openai",
+    "ai",
+    "code-generation",
+    "cli-wrapper"
+  ],
+  "author": "junyjeon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/junyjeon/claude-codex-orchestrator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/junyjeon/claude-codex-orchestrator/issues"
+  },
+  "homepage": "https://github.com/junyjeon/claude-codex-orchestrator#readme",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.4",
+    "zod": "^3.24.4",
+    "dotenv": "^16.5.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "^24.0.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vite-plugin-dts": "^4.5.4",
+    "vitest": "^3.1.3"
+  }
+}
