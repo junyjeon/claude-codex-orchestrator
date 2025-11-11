@@ -1,15 +1,21 @@
 # claude-codex-orchestrator
 
-MCP tool providing Claude Code access to Codex CLI (GPT-5) for code generation.
+MCP server enabling Claude Code to delegate code generation tasks to Codex CLI (GPT-5).
 
 ## Overview
 
-Simple MCP server that enables Claude Code to use Codex CLI for code generation tasks. Claude Code handles orchestration, analysis, and validation - this tool just calls Codex and returns results.
+Allows Claude Code to offload code generation to Codex while saving context. Claude Code manages workflow and validation - this server securely executes Codex CLI.
 
-**Architecture:**
-- Claude Code: Orchestration, analysis, validation
-- This MCP server: Execute Codex CLI
-- Codex CLI: Code generation
+**Why use this?**
+- Codex (GPT-5) excels at pure code generation
+- Claude Code saves context by delegating complex code writing
+- Secure architecture prevents command injection
+
+**v0.2.0 Security Features:**
+- spawn + stdin pipe (eliminates command injection)
+- 8 structured error types for clear debugging
+- Zod-based environment validation
+- 1MB output limit + resource management
 
 ## Prerequisites
 
@@ -19,17 +25,17 @@ Simple MCP server that enables Claude Code to use Codex CLI for code generation 
 
 ### Install Codex CLI
 
-```bash
-# Install (follow official guide)
-npm install -g @openai/codex
+Download and install from OpenAI's official site.
 
-# Authenticate
-codex
-# or
+```bash
+# Authenticate (opens browser)
+codex login
+
+# Or with API key
 printenv OPENAI_API_KEY | codex login --with-api-key
 ```
 
-Verify: `codex exec "test prompt"` should work.
+Verify: `echo "Write hello world" | codex exec -` should generate code.
 
 ## Installation
 
@@ -53,29 +59,60 @@ npm link
 
 ### 1. Register MCP Server
 
-Add to `~/.claude.json`:
+**Global configuration** (`~/.claude.json`):
 
 ```json
 {
   "mcpServers": {
     "codex": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@junyjeon/claude-codex-orchestrator"]
+      "command": "claude-codex-orchestrator"
     }
   }
 }
 ```
 
-For local development:
+**Project-specific** (recommended):
+
+```bash
+# Open Claude Code in your project
+# Edit project settings or ~/.claude.json
+```
+
+Add to projects section:
 
 ```json
 {
+  "projects": {
+    "/path/to/your/project": {
+      "mcpServers": {
+        "codex": {
+          "command": "claude-codex-orchestrator"
+        }
+      }
+    }
+  }
+}
+```
+
+**Alternative installations:**
+
+```json
+// With npx (no global install needed)
+{
   "mcpServers": {
     "codex": {
-      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@junyjeon/claude-codex-orchestrator"]
+    }
+  }
+}
+
+// Local development
+{
+  "mcpServers": {
+    "codex": {
       "command": "node",
-      "args": ["/path/to/claude-codex-orchestrator/dist/index.js"]
+      "args": ["/path/to/dist/index.js"]
     }
   }
 }
@@ -107,17 +144,31 @@ Some environments require activation in `~/.claude/settings.json`:
 
 ## Usage
 
-Ask Claude Code to generate code:
+Restart Claude Code after configuration, then request code generation:
 
 ```
-"Create a binary search function in TypeScript"
+You: "Write a quicksort algorithm in Python"
 ```
 
-Claude Code will:
-1. Decide to use Codex
-2. Call generate_code tool
-3. Validate generated code
-4. Present results
+**What happens:**
+1. Claude Code decides whether to use Codex
+2. Calls `generate_code` tool via MCP
+3. MCP server executes: `spawn('codex', ['exec', '-'])`
+4. Codex generates code via stdin pipe
+5. Claude Code validates and presents result
+
+**Example scenarios:**
+- Algorithm implementations (quicksort, binary search, etc.)
+- Boilerplate code (Express routes, React components)
+- Utility functions (date formatters, validators)
+- Data structure implementations
+
+**You'll see:**
+```
+[Codex MCP Server] Started
+[generate_code tool called]
+[Generated code presented]
+```
 
 ## Troubleshooting
 
@@ -170,10 +221,8 @@ node /path/to/dist/index.js
 
 ## Documentation
 
-- [개요.md](docs/개요.md) - Project overview
-- [구조.md](docs/구조.md) - Folder structure
-- [흐름.md](docs/흐름.md) - Process flow
-- [배포.md](docs/배포.md) - Installation & deployment
+- [설계.md](docs/설계.md) - Architecture, design decisions, technical stack (Korean)
+- [CHANGELOG.md](CHANGELOG.md) - Version history and changes
 
 ## Update
 
