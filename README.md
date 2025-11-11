@@ -221,7 +221,10 @@ node /path/to/dist/index.js
 
 ## Documentation
 
-- [설계.md](docs/설계.md) - Architecture, design decisions, technical stack (Korean)
+- [설계.md](docs/설계.md) - Complete design document: architecture, flow, stack, quality (Korean)
+- [구조.md](docs/구조.md) - Folder structure and file organization (Korean)
+- [흐름.md](docs/흐름.md) - Execution flow and data flow diagrams (Korean)
+- [배포.md](docs/배포.md) - Installation and deployment guide (Korean)
 - [CHANGELOG.md](CHANGELOG.md) - Version history and changes
 
 ## Update
