@@ -1,162 +1,136 @@
 /**
- * MCP Server for Codex CLI integration
+ * MCP Server for Codex CLI orchestration.
+ * Uses McpServer + registerTool() pattern (SDK 1.26.0).
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { callCodex } from './codex.js';
-import type { GenerateCodeParams, ServerConfig } from './types/index.js';
-
-// Zod schema for input validation
-const GenerateCodeParamsSchema = z.object({
-  task_description: z.string().min(1, 'Task description is required'),
-  language: z.string().min(1, 'Language is required'),
-  context: z.string().optional(),
-});
+import { initSemaphore } from './codex/client.js';
+import { suggestModel } from './router/suggest.js';
+import { handleExecute } from './tools/execute.js';
+import { handleGenerate } from './tools/generate.js';
+import { handleReview } from './tools/review.js';
+import type { ServerConfig } from './types/index.js';
 
 export class CodexMCPServer {
-  private server: Server;
+  private server: McpServer;
   private config: ServerConfig;
 
   constructor(config: ServerConfig) {
     this.config = config;
-    this.server = new Server(
+    this.server = new McpServer(
+      { name: 'claude-codex-orchestrator', version: '1.0.0' },
+      { capabilities: { tools: {} } },
+    );
+    initSemaphore(config.security.maxConcurrentProcesses);
+    this.registerTools();
+  }
+
+  private registerTools(): void {
+    this.registerGenerateTool();
+    this.registerExecuteTool();
+    this.registerReviewTool();
+    this.registerSuggestModelTool();
+  }
+
+  private registerGenerateTool(): void {
+    this.server.registerTool(
+      'codex_generate',
       {
-        name: 'claude-codex-orchestrator',
-        version: '0.1.0',
+        title: 'Codex Generate',
+        description: 'Generate code using Codex CLI (GPT-5.3). Fast first-attempt code generation.',
+        inputSchema: z.object({
+          task_description: z.string().min(1).describe('Clear description of the code to generate'),
+          language: z
+            .string()
+            .min(1)
+            .describe('Programming language (e.g., "typescript", "python")'),
+          context: z.string().optional().describe('Additional context or constraints'),
+          working_dir: z.string().optional().describe('Working directory for project context'),
+        }),
       },
+      async (args) => handleGenerate(args, this.config),
+    );
+  }
+
+  private registerExecuteTool(): void {
+    const sandboxOptions = this.config.security.allowDangerSandbox
+      ? (['read-only', 'workspace-write', 'danger-full-access'] as const)
+      : (['read-only', 'workspace-write'] as const);
+
+    this.server.registerTool(
+      'codex_execute',
       {
-        capabilities: {
-          tools: {},
-        },
+        title: 'Codex Execute',
+        description:
+          'Autonomous task execution using Codex CLI. Runs do-run-inspect loops to complete tasks.',
+        inputSchema: z.object({
+          task_description: z.string().min(1).describe('Task to execute autonomously'),
+          working_dir: z.string().min(1).describe('Working directory (required for execution)'),
+          approval_mode: z
+            .enum(['untrusted', 'on-failure', 'on-request', 'never'])
+            .optional()
+            .describe('Approval mode. Default: on-failure'),
+          sandbox: z
+            .enum(sandboxOptions)
+            .optional()
+            .describe('Sandbox mode. Default: workspace-write'),
+        }),
+      },
+      async (args) => handleExecute(args, this.config),
+    );
+  }
+
+  private registerReviewTool(): void {
+    this.server.registerTool(
+      'codex_review',
+      {
+        title: 'Codex Review',
+        description:
+          'Code review from Codex (GPT-5.3) perspective. Provides a different AI viewpoint.',
+        inputSchema: z.object({
+          code: z.string().min(1).describe('Code to review'),
+          file_path: z.string().optional().describe('File path for context'),
+          review_focus: z
+            .enum(['security', 'performance', 'quality', 'all'])
+            .optional()
+            .describe('Review focus area. Default: all'),
+          language: z.string().optional().describe('Programming language'),
+        }),
+      },
+      async (args) => handleReview(args, this.config),
+    );
+  }
+
+  private registerSuggestModelTool(): void {
+    this.server.registerTool(
+      'suggest_model',
+      {
+        title: 'Suggest Model',
+        description:
+          'Recommend Claude or Codex for a task. Pure rule-based, no API call. Instant response.',
+        inputSchema: z.object({
+          task_description: z.string().min(1).describe('Description of the task'),
+          task_type: z
+            .enum(['architecture', 'implementation', 'ui', 'review', 'debug', 'refactor'])
+            .optional()
+            .describe('Type of task'),
+          context_size: z.number().optional().describe('Estimated context size in tokens'),
+          complexity: z
+            .enum(['simple', 'moderate', 'complex'])
+            .optional()
+            .describe('Task complexity'),
+        }),
+      },
+      async (args) => {
+        const result = suggestModel(args);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+          structuredContent: result,
+        };
       },
     );
-
-    this.setupHandlers();
-  }
-
-  private setupHandlers(): void {
-    // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: 'generate_code',
-          description:
-            'Generate code using Codex CLI (GPT-5). Provide a clear task description and programming language.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              task_description: {
-                type: 'string',
-                description: 'Clear description of the code to generate (e.g., "binary search function")',
-              },
-              language: {
-                type: 'string',
-                description: 'Programming language (e.g., "typescript", "python", "javascript")',
-              },
-              context: {
-                type: 'string',
-                description: 'Optional additional context or constraints',
-              },
-            },
-            required: ['task_description', 'language'],
-          },
-        },
-      ],
-    }));
-
-    // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (request.params.name === 'generate_code') {
-        return await this.handleGenerateCode(request.params.arguments);
-      }
-
-      throw new Error(`Unknown tool: ${request.params.name}`);
-    });
-  }
-
-  private async handleGenerateCode(args: unknown): Promise<{
-    content: Array<{ type: string; text: string }>;
-    isError?: boolean;
-  }> {
-    const startTime = Date.now();
-
-    try {
-      // Validate parameters
-      const params = GenerateCodeParamsSchema.parse(args) as GenerateCodeParams;
-
-      // Build prompt for Codex
-      let prompt = `Generate ${params.language} code: ${params.task_description}`;
-      if (params.context) {
-        prompt += `\n\nContext: ${params.context}`;
-      }
-
-      // Log if debug mode
-      if (this.config.logLevel === 'debug') {
-        console.error(`[Codex] Calling with prompt: ${prompt}`);
-      }
-
-      // Call Codex CLI
-      const codexResult = await callCodex(prompt, {
-        timeout: this.config.timeout,
-      });
-
-      const executionTime = Date.now() - startTime;
-
-      // Log result
-      if (this.config.logLevel === 'debug' || this.config.logLevel === 'info') {
-        console.error(`[Codex] ${codexResult.success ? 'Success' : 'Failed'} (${executionTime}ms)`);
-      }
-
-      // Return result
-      if (codexResult.success) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: codexResult.code,
-            },
-          ],
-        };
-      } else {
-        const error = codexResult.error;
-        const errorText = error
-          ? `${error.message}${error.details ? `\n\nDetails: ${error.details}` : ''}\n\nError Code: ${error.code}`
-          : 'Unknown error';
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Codex generation failed: ${errorText}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-    } catch (error) {
-      const executionTime = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      if (this.config.logLevel === 'debug' || this.config.logLevel === 'error') {
-        console.error(`[Codex] Error (${executionTime}ms): ${errorMessage}`);
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Error: ${errorMessage}`,
-          },
-        ],
-        isError: true,
-      };
-    }
   }
 
   async start(): Promise<void> {
@@ -164,7 +138,7 @@ export class CodexMCPServer {
     await this.server.connect(transport);
 
     if (this.config.logLevel === 'info' || this.config.logLevel === 'debug') {
-      console.error('[Codex MCP Server] Started');
+      console.error('[Codex MCP Server] v1.0.0 started (4 tools registered)');
     }
   }
 }

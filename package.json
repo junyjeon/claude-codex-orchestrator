@@ -1,7 +1,7 @@
 {
   "name": "@junyjeon/claude-codex-orchestrator",
-  "version": "0.2.0",
-  "description": "MCP tool providing Claude Code access to Codex CLI (GPT-5) for code generation",
+  "version": "1.0.0",
+  "description": "MCP server orchestrating Claude Code and Codex CLI (GPT-5.3) with specialized tools and task routing",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,13 +49,14 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.4",
-    "zod": "^3.24.4",
-    "dotenv": "^16.5.0"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "dotenv": "^16.5.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@types/node": "^24.0.4",
+    "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vite-plugin-dts": "^4.5.4",

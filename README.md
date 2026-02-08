@@ -1,31 +1,23 @@
 # claude-codex-orchestrator
 
-MCP server enabling Claude Code to delegate code generation tasks to Codex CLI (GPT-5).
+MCP server for Claude Code + Codex CLI (GPT-5.3) orchestration. 4 specialized tools with task routing intelligence and security hardening.
 
 ## Overview
 
-Allows Claude Code to offload code generation to Codex while saving context. Claude Code manages workflow and validation - this server securely executes Codex CLI.
+Claude Opus 4.6 and Codex GPT-5.3 have different strengths. This MCP server lets Claude Code delegate specific tasks to Codex while maintaining architectural control.
 
-**Why use this?**
-- Codex (GPT-5) excels at pure code generation
-- Claude Code saves context by delegating complex code writing
-- Secure architecture prevents command injection
-
-**v0.2.0 Security Features:**
-- spawn + stdin pipe (eliminates command injection)
-- 8 structured error types for clear debugging
-- Zod-based environment validation
-- 1MB output limit + resource management
+- `codex_generate` - Fast code generation (Codex's first-attempt reliability)
+- `codex_execute` - Autonomous task execution (do-run-inspect loop)
+- `codex_review` - Code review from a different AI perspective
+- `suggest_model` - Rule-based model recommendation (no API call)
 
 ## Prerequisites
 
-- Node.js ≥20.0.0
+- Node.js >= 20.0.0
 - Codex CLI installed and authenticated
 - ChatGPT Plus, Pro, Business, Edu, or Enterprise plan
 
 ### Install Codex CLI
-
-Download and install from OpenAI's official site.
 
 ```bash
 # Authenticate (opens browser)
@@ -59,7 +51,7 @@ npm link
 
 ### 1. Register MCP Server
 
-**Global configuration** (`~/.claude.json`):
+Global configuration (`~/.claude.json`):
 
 ```json
 {
@@ -71,14 +63,7 @@ npm link
 }
 ```
 
-**Project-specific** (recommended):
-
-```bash
-# Open Claude Code in your project
-# Edit project settings or ~/.claude.json
-```
-
-Add to projects section:
+Project-specific (recommended):
 
 ```json
 {
@@ -94,10 +79,9 @@ Add to projects section:
 }
 ```
 
-**Alternative installations:**
+With npx (no global install):
 
 ```json
-// With npx (no global install needed)
 {
   "mcpServers": {
     "codex": {
@@ -106,28 +90,33 @@ Add to projects section:
     }
   }
 }
-
-// Local development
-{
-  "mcpServers": {
-    "codex": {
-      "command": "node",
-      "args": ["/path/to/dist/index.js"]
-    }
-  }
-}
 ```
 
-### 2. Environment Variables (Optional)
+### 2. Environment Variables
 
-Create `.env` file:
+Create `.env` file in the server directory:
 
 ```bash
-# Log level (default: info)
-LOG_LEVEL=debug
+# Logging
+LOG_LEVEL=info
 
-# Codex CLI timeout (default: 30000ms)
-CODEX_TIMEOUT=60000
+# Codex CLI Timeout (ms) - for generate/review tools
+CODEX_TIMEOUT=30000
+
+# Execute Timeout (ms) - for autonomous execution
+CODEX_EXECUTE_TIMEOUT=120000
+
+# Security: Allowed working directories (colon-separated)
+CODEX_ALLOWED_DIRS=/home/user/projects:/tmp
+
+# Security: Allow danger-full-access sandbox (default: false)
+CODEX_ALLOW_DANGER_SANDBOX=false
+
+# Security: Allow --full-auto mode (default: false)
+CODEX_ALLOW_FULL_AUTO=false
+
+# Security: Max concurrent Codex processes (default: 3, max: 10)
+CODEX_MAX_CONCURRENT=3
 ```
 
 ### 3. Activate (If Needed)
@@ -136,38 +125,110 @@ Some environments require activation in `~/.claude/settings.json`:
 
 ```json
 {
-  "enabledMcpjsonServers": [
-    "codex"
-  ]
+  "enabledMcpjsonServers": ["codex"]
 }
 ```
 
-## Usage
+## Tools
 
-Restart Claude Code after configuration, then request code generation:
+### codex_generate
+
+Fast code generation using Codex CLI.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_description | string | yes | What to generate |
+| language | string | yes | Programming language |
+| context | string | no | Additional constraints |
+| working_dir | string | no | Project directory for context |
+
+### codex_execute
+
+Autonomous task execution with do-run-inspect loop.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_description | string | yes | Task to execute |
+| working_dir | string | yes | Working directory |
+| approval_mode | enum | no | `untrusted`, `on-failure` (default), `on-request`, `never` |
+| sandbox | enum | no | `read-only`, `workspace-write` (default) |
+
+`danger-full-access` sandbox is only available when `CODEX_ALLOW_DANGER_SANDBOX=true`.
+`--full-auto` mode is only used when `CODEX_ALLOW_FULL_AUTO=true` and no `approval_mode` is set.
+
+### codex_review
+
+Code review from Codex (GPT-5.3) perspective.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| code | string | yes | Code to review |
+| file_path | string | no | File path for context |
+| review_focus | enum | no | `security`, `performance`, `quality`, `all` (default) |
+| language | string | no | Programming language |
+
+Returns structured output: `{ issues: [{severity, line, message, suggestion}], summary, score }`.
+
+### suggest_model
+
+Rule-based model recommendation. No API call, instant response.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| task_description | string | yes | Description of the task |
+| task_type | enum | no | `architecture`, `implementation`, `ui`, `review`, `debug`, `refactor` |
+| context_size | number | no | Estimated context size in tokens |
+| complexity | enum | no | `simple`, `moderate`, `complex` |
+
+Returns: `{ recommended: 'claude'|'codex', reasoning, confidence, alternative_scenarios }`.
+
+## Security
+
+### Defense in Depth
+
+4 layers of security protection:
+
+1. **Schema Level** - `danger-full-access` is conditionally excluded from Zod schema. AI clients cannot select it unless explicitly enabled via env var.
+2. **Path Validation** - `validateWorkingDir()` canonicalizes paths with `realpathSync` (follows symlinks), then checks against allowed directory roots with boundary-aware comparison.
+3. **Process Level** - Semaphore limits concurrent Codex processes (default: 3) to prevent DoS.
+4. **Output Level** - `sanitizeErrorOutput()` redacts home paths, API keys, tokens, and credentials from error responses.
+
+### Spawn Safety (from v0.2.0)
+
+- stdin pipe eliminates command injection (no shell interpretation)
+- SIGTERM -> SIGKILL cascade timeout
+- 1MB output size limit
+- 8 structured error codes
+
+### Secure Defaults
+
+| Setting | Default | Reason |
+|---------|---------|--------|
+| sandbox | `workspace-write` | Prevents full filesystem access |
+| approval_mode | `on-failure` | Requires approval on failures |
+| --full-auto | disabled | Requires `CODEX_ALLOW_FULL_AUTO=true` |
+| danger-full-access | hidden | Requires `CODEX_ALLOW_DANGER_SANDBOX=true` |
+| max concurrent | 3 | Prevents resource exhaustion |
+
+## Architecture
 
 ```
-You: "Write a quicksort algorithm in Python"
-```
-
-**What happens:**
-1. Claude Code decides whether to use Codex
-2. Calls `generate_code` tool via MCP
-3. MCP server executes: `spawn('codex', ['exec', '-'])`
-4. Codex generates code via stdin pipe
-5. Claude Code validates and presents result
-
-**Example scenarios:**
-- Algorithm implementations (quicksort, binary search, etc.)
-- Boilerplate code (Express routes, React components)
-- Utility functions (date formatters, validators)
-- Data structure implementations
-
-**You'll see:**
-```
-[Codex MCP Server] Started
-[generate_code tool called]
-[Generated code presented]
+src/
+├── index.ts          # Entry, env var validation
+├── server.ts         # McpServer + registerTool() (SDK 1.26.0)
+├── security.ts       # Path validation, sanitization, semaphore
+├── codex/
+│   ├── client.ts     # spawn wrapper + --json + semaphore
+│   ├── parser.ts     # JSONL output parser
+│   └── prompts.ts    # Tool-specific prompt templates
+├── router/
+│   └── suggest.ts    # Rule-based task routing
+├── tools/
+│   ├── generate.ts   # codex_generate handler
+│   ├── execute.ts    # codex_execute handler
+│   └── review.ts     # codex_review handler
+└── types/
+    └── index.ts      # Type definitions + enums
 ```
 
 ## Troubleshooting
@@ -175,79 +236,40 @@ You: "Write a quicksort algorithm in Python"
 ### Codex CLI not found
 
 ```
-Codex CLI not found. Please install...
+Codex CLI not found. Install: npm install -g @openai/codex
 ```
 
-Fix:
-1. Install Codex CLI
-2. Verify: `which codex`
-3. Restart Claude Code
+Verify: `which codex`, then restart Claude Code.
 
 ### Authentication failed
 
-```
-Codex authentication failed. Please run: codex login
-```
-
-Fix:
-1. Run `codex` or `codex login`
-2. Authenticate in browser
-3. Restart Claude Code
+Run `codex login`, authenticate in browser, restart Claude Code.
 
 ### Timeout
 
-```
-Codex CLI timeout after 30000ms
-```
+Increase `CODEX_TIMEOUT` or `CODEX_EXECUTE_TIMEOUT` in `.env`. Check network connection.
 
-Fix:
-1. Increase CODEX_TIMEOUT in `.env`
-2. Check network connection
-3. Try simpler prompt
+### Security: Path outside allowed directories
+
+Set `CODEX_ALLOWED_DIRS` in `.env` to include your project directory:
+
+```bash
+CODEX_ALLOWED_DIRS=/home/user/projects:/home/user/work
+```
 
 ### MCP server not detected
 
-generate_code tool not in Claude Code.
-
-Fix:
 1. Check `~/.claude.json` configuration
 2. Restart Claude Code completely
-3. Manual test:
-```bash
-npx @junyjeon/claude-codex-orchestrator
-# or
-node /path/to/dist/index.js
-```
+3. Manual test: `npx @junyjeon/claude-codex-orchestrator`
 
-## Documentation
-
-- [설계.md](docs/설계.md) - Complete design document: architecture, flow, stack, quality (Korean)
-- [구조.md](docs/구조.md) - Folder structure and file organization (Korean)
-- [흐름.md](docs/흐름.md) - Execution flow and data flow diagrams (Korean)
-- [배포.md](docs/배포.md) - Installation and deployment guide (Korean)
-- [CHANGELOG.md](CHANGELOG.md) - Version history and changes
-
-## Update
+## Development
 
 ```bash
-# npm package
-npm update -g @junyjeon/claude-codex-orchestrator
-
-# Local development
-cd claude-codex-orchestrator
-git pull
-npm install
-npm run build
-```
-
-## Uninstall
-
-```bash
-# npm package
-npm uninstall -g @junyjeon/claude-codex-orchestrator
-
-# Remove from ~/.claude.json
-# Delete codex section
+npm test          # Run tests (79 tests)
+npm run typecheck # TypeScript strict check
+npm run lint      # Biome lint
+npm run build     # Vite production build
 ```
 
 ## License
