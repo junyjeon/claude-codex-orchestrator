@@ -4,11 +4,11 @@ MCP server for Claude Code + Codex CLI (GPT-5.3) orchestration. 4 specialized to
 
 ## Overview
 
-Claude Opus 4.6 and Codex GPT-5.3 have different strengths. This MCP server lets Claude Code delegate specific tasks to Codex while maintaining architectural control.
+Claude Opus 4.6 and Codex GPT-5.3 have different strengths. This MCP server lets Claude Code delegate **self-contained tasks** to Codex while maintaining architectural control. Delegation scope is intentionally narrow: only tasks that don't need project conventions benefit from Codex generation. See [docs/모델비교.md](docs/모델비교.md) for detailed benchmarks and rationale.
 
-- `codex_generate` - Fast code generation (Codex's first-attempt reliability)
+- `codex_generate` - Code generation for self-contained tasks (bash scripts, utility functions, scaffolds)
 - `codex_execute` - Autonomous task execution (do-run-inspect loop)
-- `codex_review` - Code review from a different AI perspective
+- `codex_review` - Code review from a different AI perspective (highest-value tool — no context loss)
 - `suggest_model` - Rule-based model recommendation (no API call)
 
 ## Prerequisites
@@ -176,7 +176,7 @@ Rule-based model recommendation. No API call, instant response.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | task_description | string | yes | Description of the task |
-| task_type | enum | no | `architecture`, `implementation`, `ui`, `review`, `debug`, `refactor` |
+| task_type | enum | no | `architecture`, `implementation`, `ui`, `review`, `debug`, `refactor`, `scripting`, `security` |
 | context_size | number | no | Estimated context size in tokens |
 | complexity | enum | no | `simple`, `moderate`, `complex` |
 
@@ -266,7 +266,7 @@ CODEX_ALLOWED_DIRS=/home/user/projects:/home/user/work
 ## Development
 
 ```bash
-npm test          # Run tests (79 tests)
+npm test          # Run tests (118 tests)
 npm run typecheck # TypeScript strict check
 npm run lint      # Biome lint
 npm run build     # Vite production build
