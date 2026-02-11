@@ -1,6 +1,14 @@
 /**
  * Rule-based task routing between Claude and Codex.
  * Pure function, no API calls.
+ *
+ * Routes based on structured inputs only (task_type, complexity, context_size).
+ * Does NOT analyze task_description — a pure function cannot understand
+ * natural language context. Callers should provide task_type for meaningful results.
+ *
+ * Confidence tiers:
+ *   >= 0.6  task_type provided (actionable)
+ *   <  0.6  partial or no structured input (CLAUDE.md says: ignore and decide yourself)
  */
 
 import {
@@ -10,221 +18,164 @@ import {
   TaskType,
 } from '../types/index.js';
 
-interface Signal {
-  model: 'claude' | 'codex';
-  weight: number;
-  reason: string;
+interface RouteEntry {
+  readonly recommended: 'claude' | 'codex';
+  readonly confidence: number;
+  readonly reasoning: string;
+  readonly alternatives: readonly string[];
 }
 
-const KEYWORD_SIGNALS: Array<{
-  pattern: RegExp;
-  model: 'claude' | 'codex';
-  weight: number;
-  reason: string;
-}> = [
-  // Claude strengths
-  {
-    pattern: /architect/i,
-    model: 'claude',
-    weight: 0.3,
-    reason: 'Architecture design benefits from deep reasoning',
+// satisfies enforces exhaustive TaskType coverage at compile time
+const TYPE_ROUTES = {
+  [TaskType.ARCHITECTURE]: {
+    recommended: 'claude',
+    confidence: 0.85,
+    reasoning: 'Architecture requires deep reasoning and broad context',
+    alternatives: ['Codex may be better for simple scaffold generation'],
   },
-  {
-    pattern: /design\s*(system|pattern)/i,
-    model: 'claude',
-    weight: 0.3,
-    reason: 'System design requires broad context',
+  [TaskType.DEBUG]: {
+    recommended: 'claude',
+    confidence: 0.80,
+    reasoning: 'Debugging benefits from Claude reasoning depth',
+    alternatives: ['Codex may be better for simple, isolated test failures'],
   },
-  {
-    pattern: /refactor.*large|large.*refactor/i,
-    model: 'claude',
-    weight: 0.2,
-    reason: 'Large refactors need holistic understanding',
+  [TaskType.REFACTOR]: {
+    recommended: 'claude',
+    confidence: 0.75,
+    reasoning: 'Refactoring needs holistic understanding of existing code',
+    alternatives: ['Codex may be better for mechanical rename-only refactors'],
   },
-  {
-    pattern: /explain|why|reason/i,
-    model: 'claude',
-    weight: 0.2,
-    reason: 'Explanatory tasks suit Claude reasoning',
+  [TaskType.REVIEW]: {
+    recommended: 'claude',
+    confidence: 0.70,
+    reasoning: 'Code review benefits from Claude thoroughness and security awareness',
+    alternatives: ['Codex can provide a second-opinion review via codex_review'],
   },
-  {
-    pattern: /plan|strategy/i,
-    model: 'claude',
-    weight: 0.2,
-    reason: 'Planning leverages Claude deliberation',
+  [TaskType.UI]: {
+    recommended: 'claude',
+    confidence: 0.65,
+    reasoning: 'UI aesthetics and project integration favor Claude',
+    alternatives: ['Codex may be better for standalone UI utility functions'],
   },
+  [TaskType.IMPLEMENTATION]: {
+    recommended: 'codex',
+    confidence: 0.65,
+    reasoning: 'Direct implementation slightly favors Codex speed',
+    alternatives: ['Claude may be better if project conventions matter or task is complex'],
+  },
+} as const satisfies Record<TaskType, RouteEntry>;
 
-  // Codex strengths
-  {
-    pattern: /fix\s*(bug|error|issue)|bug\s*fix/i,
-    model: 'codex',
-    weight: 0.3,
-    reason: 'Quick fixes benefit from Codex speed',
-  },
-  {
-    pattern: /implement|create|build|add/i,
-    model: 'codex',
-    weight: 0.2,
-    reason: 'Direct implementation suits Codex first-attempt reliability',
-  },
-  {
-    pattern: /ui|frontend|component|css|style/i,
-    model: 'codex',
-    weight: 0.3,
-    reason: 'UI work is a known Codex strength',
-  },
-  {
-    pattern: /test|spec/i,
-    model: 'codex',
-    weight: 0.2,
-    reason: 'Test generation suits Codex autonomous execution',
-  },
-  {
-    pattern: /script|automation|cli/i,
-    model: 'codex',
-    weight: 0.2,
-    reason: 'Script writing benefits from Codex execution loop',
-  },
-];
+function normalizeContextSize(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  return value;
+}
 
 export function suggestModel(input: SuggestModelInput): SuggestModelOutput {
-  const signals: Signal[] = [];
+  const contextSize = normalizeContextSize(input.context_size);
 
-  // Signal from explicit task type
-  if (input.task_type) {
-    const typeSignal = getTypeSignal(input.task_type);
-    signals.push(typeSignal);
-  }
-
-  // Signal from complexity
-  if (input.complexity) {
-    const complexitySignal = getComplexitySignal(input.complexity);
-    signals.push(complexitySignal);
-  }
-
-  // Signal from context size
-  if (input.context_size !== undefined) {
-    const contextSignal = getContextSizeSignal(input.context_size);
-    signals.push(contextSignal);
-  }
-
-  // Signals from description keywords
-  for (const kw of KEYWORD_SIGNALS) {
-    if (kw.pattern.test(input.task_description)) {
-      signals.push({ model: kw.model, weight: kw.weight, reason: kw.reason });
-    }
-  }
-
-  // Default signal if no others matched
-  if (signals.length === 0) {
-    signals.push({
-      model: 'codex',
-      weight: 0.1,
-      reason: 'Default: Codex for general implementation',
+  // Hard constraint: large context forces Claude regardless of task_type
+  if (contextSize !== undefined && contextSize > 100_000) {
+    return formatOutput({
+      recommended: 'claude',
+      confidence: 0.90,
+      reasoning: `Large context (${Math.round(contextSize / 1000)}K tokens) requires Claude extended window`,
+      alternatives: ['Codex is limited to smaller context windows'],
     });
   }
 
-  return aggregateSignals(signals);
-}
-
-function getTypeSignal(taskType: `${TaskType}`): Signal {
-  switch (taskType) {
-    case TaskType.ARCHITECTURE:
-      return {
-        model: 'claude',
-        weight: 0.5,
-        reason: 'Architecture requires deep reasoning and broad context',
-      };
-    case TaskType.UI:
-      return { model: 'codex', weight: 0.5, reason: 'UI implementation is a known Codex strength' };
-    case TaskType.IMPLEMENTATION:
-      return {
-        model: 'codex',
-        weight: 0.3,
-        reason: 'Direct implementation benefits from Codex speed',
-      };
-    case TaskType.DEBUG:
-      return {
-        model: 'claude',
-        weight: 0.3,
-        reason: 'Debugging benefits from Claude reasoning depth',
-      };
-    case TaskType.REVIEW:
-      return { model: 'claude', weight: 0.2, reason: 'Review benefits from Claude thoroughness' };
-    case TaskType.REFACTOR:
-      return { model: 'claude', weight: 0.2, reason: 'Refactoring needs holistic understanding' };
-    default:
-      return { model: 'codex', weight: 0.1, reason: 'Default: Codex for general tasks' };
-  }
-}
-
-function getComplexitySignal(complexity: `${Complexity}`): Signal {
-  switch (complexity) {
-    case Complexity.SIMPLE:
-      return { model: 'codex', weight: 0.3, reason: 'Simple tasks benefit from Codex speed' };
-    case Complexity.MODERATE:
-      return {
-        model: 'codex',
-        weight: 0.1,
-        reason: 'Moderate tasks slightly favor Codex efficiency',
-      };
-    case Complexity.COMPLEX:
-      return { model: 'claude', weight: 0.4, reason: 'Complex tasks need Claude deep reasoning' };
-    default:
-      return { model: 'codex', weight: 0.1, reason: 'Default complexity signal' };
-  }
-}
-
-function getContextSizeSignal(contextSize: number): Signal {
-  if (contextSize > 100_000) {
-    return {
-      model: 'claude',
-      weight: 0.5,
-      reason: 'Large context (>100K tokens) requires Claude 1M window',
-    };
-  }
-  if (contextSize > 50_000) {
-    return {
-      model: 'claude',
-      weight: 0.2,
-      reason: 'Medium-large context favors Claude larger window',
-    };
-  }
-  return { model: 'codex', weight: 0.1, reason: 'Small context works well with Codex' };
-}
-
-function aggregateSignals(signals: Signal[]): SuggestModelOutput {
-  let claudeScore = 0;
-  let codexScore = 0;
-  const claudeReasons: string[] = [];
-  const codexReasons: string[] = [];
-
-  for (const signal of signals) {
-    if (signal.model === 'claude') {
-      claudeScore += signal.weight;
-      claudeReasons.push(signal.reason);
-    } else {
-      codexScore += signal.weight;
-      codexReasons.push(signal.reason);
+  // Tier 1: task_type provided → routing table lookup + modifiers
+  if (input.task_type !== undefined) {
+    const route = TYPE_ROUTES[input.task_type as TaskType];
+    if (route) {
+      return formatOutput(applyModifiers(route, input, contextSize));
     }
   }
 
-  const totalScore = claudeScore + codexScore;
-  const recommended = claudeScore >= codexScore ? 'claude' : 'codex';
-  const winnerScore = Math.max(claudeScore, codexScore);
-  const confidence = totalScore > 0 ? Math.min(winnerScore / totalScore, 1) : 0.5;
+  // Tier 2: only complexity or context_size (no task_type)
+  if (input.complexity !== undefined || (contextSize !== undefined && contextSize > 0)) {
+    return formatOutput(inferFromPartialInput(input, contextSize));
+  }
 
-  const reasoning = recommended === 'claude' ? claudeReasons.join('. ') : codexReasons.join('. ');
+  // Tier 3: description only → honest "I don't know"
+  return formatOutput({
+    recommended: 'codex',
+    confidence: 0.50,
+    reasoning: 'No structured input provided. Default recommendation only.',
+    alternatives: [
+      'Provide task_type for a more accurate recommendation',
+      'Claude is better for architecture, debugging, refactoring, security',
+      'Codex is better for bash scripts, utilities, CRUD, scaffolding',
+    ],
+  });
+}
 
-  const alternative_scenarios =
-    recommended === 'claude'
-      ? codexReasons.map((r) => `Codex may be better if: ${r}`)
-      : claudeReasons.map((r) => `Claude may be better if: ${r}`);
+function applyModifiers(
+  route: RouteEntry,
+  input: SuggestModelInput,
+  contextSize: number | undefined,
+): RouteEntry {
+  let { confidence } = route;
+
+  if (input.complexity !== undefined) {
+    const aligned =
+      (input.complexity === Complexity.COMPLEX && route.recommended === 'claude') ||
+      (input.complexity === Complexity.SIMPLE && route.recommended === 'codex');
+    const conflicting =
+      (input.complexity === Complexity.COMPLEX && route.recommended === 'codex') ||
+      (input.complexity === Complexity.SIMPLE && route.recommended === 'claude');
+
+    if (aligned) confidence += 0.05;
+    if (conflicting) confidence -= 0.10;
+  }
+
+  // Medium-large context (50K-100K); >100K already handled as hard override
+  if (contextSize !== undefined && contextSize > 50_000) {
+    confidence += route.recommended === 'claude' ? 0.03 : -0.03;
+  }
+
+  // Tier 1 contract: task_type routes never drop below 0.6
+  confidence = Math.max(0.60, confidence);
+
+  return { ...route, confidence, alternatives: [...route.alternatives] };
+}
+
+function inferFromPartialInput(
+  input: SuggestModelInput,
+  contextSize: number | undefined,
+): RouteEntry {
+  if (input.complexity === Complexity.COMPLEX) {
+    return {
+      recommended: 'claude',
+      confidence: 0.55,
+      reasoning: 'Complex tasks generally need Claude deep reasoning',
+      alternatives: ['Codex may be better for convention-free tasks'],
+    };
+  }
+
+  if (contextSize !== undefined && contextSize > 50_000) {
+    return {
+      recommended: 'claude',
+      confidence: 0.55,
+      reasoning: 'Medium-large context favors Claude larger window',
+      alternatives: ['Codex works well with smaller context'],
+    };
+  }
 
   return {
-    recommended,
-    reasoning,
-    confidence: Math.round(confidence * 100) / 100,
-    alternative_scenarios,
+    recommended: 'codex',
+    confidence: 0.55,
+    reasoning: 'Simple/moderate tasks without type specification',
+    alternatives: ['Claude may be better if task requires deep reasoning'],
+  };
+}
+
+function formatOutput(route: RouteEntry): SuggestModelOutput {
+  const clamped = Math.max(0.30, Math.min(route.confidence, 0.95));
+  return {
+    recommended: route.recommended,
+    confidence: Math.round(clamped * 100) / 100,
+    reasoning: route.reasoning,
+    alternative_scenarios: [...route.alternatives],
   };
 }

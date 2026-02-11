@@ -22,7 +22,7 @@ export async function handleReview(
     }
 
     const result = await callCodex(prompt, {
-      timeout: config.timeout,
+      timeout: config.executeTimeout,
       json: true,
       skipGitRepoCheck: true,
     });

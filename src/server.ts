@@ -109,7 +109,7 @@ export class CodexMCPServer {
       {
         title: 'Suggest Model',
         description:
-          'Recommend Claude or Codex for a task. Pure rule-based, no API call. Instant response.',
+          'Recommend Claude or Codex for a task. Pure rule-based, no API call. Provide task_type for meaningful results (confidence >= 0.6). Description-only calls return low confidence.',
         inputSchema: z.object({
           task_description: z.string().min(1).describe('Description of the task'),
           task_type: z
