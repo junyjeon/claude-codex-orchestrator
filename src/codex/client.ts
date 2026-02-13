@@ -53,12 +53,16 @@ export function buildArgs(options: CodexExecOptions): string[] {
 /**
  * Calls Codex CLI using spawn + stdin pipe (secure).
  * Acquires semaphore before spawning, releases on completion.
+ *
+ * @param onProgress Optional callback for progress updates (bytesReceived, estimatedTotal)
  */
 export async function callCodex(
   prompt: string,
   options: CodexExecOptions = {},
+  onProgress?: (bytesReceived: number, estimatedTotal: number) => Promise<void>,
 ): Promise<CodexResult> {
   const timeout = options.timeout ?? 30000;
+  const estimatedTotal = Math.max(prompt.length * 3, 10000); // Rough estimate
 
   // Acquire semaphore if initialized
   if (semaphore) {
@@ -125,6 +129,13 @@ export async function callCodex(
         return;
       }
       stdoutChunks.push(data);
+
+      // Send progress update if callback provided
+      if (onProgress) {
+        onProgress(stdoutSize, estimatedTotal).catch(() => {
+          // Ignore progress callback errors
+        });
+      }
     });
 
     child.stderr.on('data', (data: Buffer) => {

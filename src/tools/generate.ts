@@ -3,6 +3,7 @@
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { callCodex } from '../codex/client.js';
 import { buildGeneratePrompt } from '../codex/prompts.js';
 import { sanitizeErrorOutput, validateWorkingDir } from '../security.js';
@@ -11,8 +12,10 @@ import type { GenerateInput, ServerConfig } from '../types/index.js';
 export async function handleGenerate(
   input: GenerateInput,
   config: ServerConfig,
+  server: McpServer,
 ): Promise<CallToolResult> {
   const startTime = Date.now();
+  const progressToken = `codex-gen-${Date.now()}`;
 
   try {
     // Validate working_dir if provided
@@ -34,17 +37,67 @@ export async function handleGenerate(
       console.error(`[codex_generate] Prompt: ${prompt.slice(0, 200)}...`);
     }
 
-    const result = await callCodex(prompt, {
-      timeout: config.timeout,
-      json: true,
-      workingDir: resolvedWorkingDir,
-      skipGitRepoCheck: true,
-    });
+    // Send initial progress notification
+    try {
+      await server.server.notification({
+        method: 'notifications/progress',
+        params: {
+          progressToken,
+          progress: 0,
+          total: 100,
+        },
+      });
+    } catch (err) {
+      // Ignore notification errors (client may not support it)
+      if (config.logLevel === 'debug') {
+        console.error('[codex_generate] Progress notification not supported');
+      }
+    }
+
+    const result = await callCodex(
+      prompt,
+      {
+        timeout: config.timeout,
+        json: true,
+        workingDir: resolvedWorkingDir,
+        skipGitRepoCheck: true,
+      },
+      // Progress callback
+      async (bytesReceived: number, estimatedTotal: number) => {
+        try {
+          const progress = Math.min(95, Math.floor((bytesReceived / estimatedTotal) * 100));
+          await server.server.notification({
+            method: 'notifications/progress',
+            params: {
+              progressToken,
+              progress,
+              total: 100,
+            },
+          });
+        } catch {
+          // Ignore
+        }
+      },
+    );
 
     const elapsed = Date.now() - startTime;
 
     if (config.logLevel === 'debug' || config.logLevel === 'info') {
       console.error(`[codex_generate] ${result.success ? 'OK' : 'FAIL'} (${elapsed}ms)`);
+    }
+
+    // Send completion notification
+    try {
+      await server.server.notification({
+        method: 'notifications/progress',
+        params: {
+          progressToken,
+          progress: 100,
+          total: 100,
+        },
+      });
+    } catch {
+      // Ignore
     }
 
     if (result.success) {

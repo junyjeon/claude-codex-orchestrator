@@ -50,7 +50,7 @@ export class CodexMCPServer {
           working_dir: z.string().optional().describe('Working directory for project context'),
         }),
       },
-      async (args) => handleGenerate(args, this.config),
+      async (args) => handleGenerate(args, this.config, this.server),
     );
   }
 
