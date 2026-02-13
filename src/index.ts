@@ -5,12 +5,16 @@
  */
 
 import { config } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { CodexMCPServer } from './server.js';
 import type { ServerConfig } from './types/index.js';
 
-// Load environment variables
-config();
+// Load environment variables from project root
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: join(__dirname, '../.env') });
 
 const ServerConfigSchema = z.object({
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
