@@ -1,0 +1,17 @@
+# <type>(<scope>): <summary>
+#
+# <body>
+#
+# <footer>
+#
+# type: feat, fix, refactor, docs, test, chore, perf, style, ci
+# scope: 변경된 모듈/컴포넌트 (server, security, codex, router, tools, types)
+# summary: 50자 이내, 한글 간결체
+# body: "왜" 변경했는지 (선택)
+# footer: Review: passed | Closes #N | BREAKING CHANGE: (선택)
+#
+# 예시:
+# feat(tools): codex_review에 language 자동 감지 추가
+# fix(security): symlink traversal 취약점 수정
+# refactor(codex): client.ts 타임아웃 로직 단순화
+# docs: README.md 환경변수 섹션 업데이트
