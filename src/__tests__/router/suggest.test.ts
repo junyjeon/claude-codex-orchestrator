@@ -66,6 +66,26 @@ describe('suggestModel', () => {
     expect(result.confidence).toBeGreaterThanOrEqual(0.60);
   });
 
+  it('routes scripting to codex with high confidence', () => {
+    const result = suggestModel({
+      task_description: 'Write a deployment script',
+      task_type: 'scripting',
+    });
+
+    expect(result.recommended).toBe('codex');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it('routes security to claude with high confidence', () => {
+    const result = suggestModel({
+      task_description: 'Audit authentication for vulnerabilities',
+      task_type: 'security',
+    });
+
+    expect(result.recommended).toBe('claude');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.80);
+  });
+
   // ─── Complexity modifier ───
 
   it('increases confidence when complexity aligns with recommendation', () => {

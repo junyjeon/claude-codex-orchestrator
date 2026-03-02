@@ -10,6 +10,14 @@ vi.mock('../../codex/client.js', () => ({
 vi.mock('../../security.js', () => ({
   validateWorkingDir: vi.fn(),
   sanitizeErrorOutput: vi.fn((text: string) => text),
+  sanitizePromptInput: (text: string, _maxLength: number) => text,
+  INPUT_LIMITS: {
+    TASK_DESCRIPTION: 10_000,
+    CONTEXT: 50_000,
+    CODE_REVIEW: 100_000,
+    FILE_PATH: 500,
+    LANGUAGE: 50,
+  },
 }));
 
 import { callCodex } from '../../codex/client.js';
@@ -130,6 +138,82 @@ describe('handleGenerate', () => {
     expect(mockedValidateWorkingDir).not.toHaveBeenCalled();
   });
 
+  it('logs debug output when logLevel is debug', async () => {
+    const debugConfig: ServerConfig = { ...baseConfig, logLevel: 'debug' };
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: 'code output',
+      filesChanged: [],
+      commandsRun: [],
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handleGenerate(
+      { task_description: 'Generate something', language: 'ts' },
+      debugConfig,
+    );
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[codex_generate] Prompt:'));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[codex_generate] OK'));
+    spy.mockRestore();
+  });
+
+  it('logs info output when logLevel is info', async () => {
+    const infoConfig: ServerConfig = { ...baseConfig, logLevel: 'info' };
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: 'ok',
+      filesChanged: [],
+      commandsRun: [],
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handleGenerate({ task_description: 'Generate', language: 'ts' }, infoConfig);
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[codex_generate] OK'));
+    spy.mockRestore();
+  });
+
+  it('formats error without details', async () => {
+    mockedCallCodex.mockResolvedValue({
+      success: false,
+      events: [],
+      finalMessage: '',
+      filesChanged: [],
+      commandsRun: [],
+      error: { code: 'CODEX_TIMEOUT', message: 'Timeout' },
+    });
+
+    const result = await handleGenerate(
+      { task_description: 'Generate', language: 'ts' },
+      baseConfig,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).not.toContain('Details:');
+  });
+
+  it('handles response without code blocks', async () => {
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: 'Just a plain text response without code fences',
+      filesChanged: [],
+      commandsRun: [],
+    });
+
+    const result = await handleGenerate(
+      { task_description: 'Generate', language: 'ts' },
+      baseConfig,
+    );
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.code).toBe('Just a plain text response without code fences');
+    expect(structured.explanation).toBe('');
+  });
+
   it('handles thrown exceptions', async () => {
     mockedCallCodex.mockRejectedValue(new Error('Network error'));
 
@@ -163,6 +247,7 @@ describe('handleGenerate', () => {
     expect(mockedCallCodex).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ workingDir: '/home/user/projects/resolved' }),
+      expect.any(Function),
     );
   });
 });

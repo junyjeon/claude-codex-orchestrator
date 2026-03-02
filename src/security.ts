@@ -135,3 +135,114 @@ export class ProcessSemaphore {
     return this.waitQueue.length;
   }
 }
+
+// ─── Prompt Input Limits ───
+
+export const INPUT_LIMITS = {
+  TASK_DESCRIPTION: 10_000,
+  CONTEXT: 50_000,
+  CODE_REVIEW: 100_000,
+  FILE_PATH: 500,
+  LANGUAGE: 50,
+} as const;
+
+// ─── Prompt Injection Defense ───
+
+interface InjectionPattern {
+  pattern: RegExp;
+  label: string;
+  action: 'log' | 'strip';
+}
+
+/**
+ * Prompt injection detection patterns.
+ *
+ * 'strip' patterns: instruction override 계열. 정당한 코드 생성에서 거의 안 쓰이므로 제거해도 안전하다.
+ * 'log' patterns: jailbreak/role-play/exfiltration 계열. 보안 관련 코드에서 정당하게 등장할 수 있으므로 경고만 한다.
+ *
+ * RegExp에 g 플래그를 쓰지 않는다. test()의 lastIndex 상태 문제를 피하기 위함이다.
+ */
+const INJECTION_PATTERNS: InjectionPattern[] = [
+  // ─── Strip: instruction override (오탐 위험 낮음) ───
+  {
+    pattern: /ignore\s+(all\s+)?previous\s+instructions/i,
+    label: 'instruction-override',
+    action: 'strip',
+  },
+  {
+    pattern: /disregard\s+(all\s+)?(previous|above|prior)\s+(instructions|rules|guidelines)/i,
+    label: 'instruction-disregard',
+    action: 'strip',
+  },
+  {
+    pattern: /forget\s+(all\s+)?(your|previous|prior)\s+(instructions|rules|constraints)/i,
+    label: 'instruction-forget',
+    action: 'strip',
+  },
+  {
+    pattern: /new\s+instructions?\s*:/i,
+    label: 'new-instructions',
+    action: 'strip',
+  },
+  // ─── Log: role/jailbreak/exfiltration (오탐 가능성 있어 로그만) ───
+  {
+    pattern: /you\s+are\s+now\s+(a|an|my)\b/i,
+    label: 'role-reassignment',
+    action: 'log',
+  },
+  {
+    pattern: /\bDo\s+Anything\s+Now\b/i,
+    label: 'jailbreak-DAN',
+    action: 'log',
+  },
+  {
+    pattern: /\bdeveloper\s+mode\s+(enabled|activated)\b/i,
+    label: 'jailbreak-devmode',
+    action: 'log',
+  },
+  {
+    pattern: /(output|show|reveal|repeat|print)\s+(your|the)\s+system\s+prompt/i,
+    label: 'data-exfiltration',
+    action: 'log',
+  },
+];
+
+/**
+ * Sanitize user input before embedding in LLM prompts.
+ *
+ * Defense layers:
+ * 1. Length truncation (prevents abuse)
+ * 2. Delimiter escaping (prevents structural breakout)
+ * 3. Injection pattern detection (detects known attack patterns)
+ * 4. Structural prompt delimiters (in prompts.ts - primary defense)
+ */
+export function sanitizePromptInput(input: string, maxLength: number): string {
+  // Layer 1: Enforce length limit
+  let result = input.length > maxLength ? input.slice(0, maxLength) : input;
+
+  // Layer 2: Escape structural delimiters to prevent tag breakout
+  result = escapePromptDelimiters(result);
+
+  // Layer 3: Detect and handle injection patterns
+  for (const { pattern, label, action } of INJECTION_PATTERNS) {
+    if (pattern.test(result)) {
+      console.error(`[security] Prompt injection detected: ${label}`);
+      if (action === 'strip') {
+        result = result.replace(pattern, '[FILTERED]');
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Escape XML-like delimiters used in prompt structural boundaries.
+ * Prevents user input from closing/opening prompt template tags.
+ */
+function escapePromptDelimiters(text: string): string {
+  return text.replace(
+    /<\/?(task|context|review_code)\b[^>]*>/gi,
+    (match) => match.replace('<', '\\<').replace('>', '\\>'),
+  );
+}

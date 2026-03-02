@@ -9,6 +9,14 @@ vi.mock('../../codex/client.js', () => ({
 
 vi.mock('../../security.js', () => ({
   sanitizeErrorOutput: vi.fn((text: string) => text),
+  sanitizePromptInput: (text: string, _maxLength: number) => text,
+  INPUT_LIMITS: {
+    TASK_DESCRIPTION: 10_000,
+    CONTEXT: 50_000,
+    CODE_REVIEW: 100_000,
+    FILE_PATH: 500,
+    LANGUAGE: 50,
+  },
 }));
 
 import { callCodex } from '../../codex/client.js';
@@ -86,6 +94,30 @@ describe('parseReviewOutput', () => {
   });
 });
 
+describe('parseReviewOutput - Strategy 2', () => {
+  it('extracts JSON via brace-matching when direct parse fails', () => {
+    const text = 'Here is my analysis:\n{"issues":[{"severity":"medium","message":"No null check"}],"summary":"Needs fixes","score":70}\nEnd of review.';
+
+    const result = parseReviewOutput(text);
+    expect(result.score).toBe(70);
+    expect(result.issues[0]?.message).toContain('No null check');
+  });
+
+  it('handles pathological input without catastrophic backtracking', () => {
+    // Previously this would trigger O(n^4) backtracking with greedy [\s\S]* regex.
+    // Now uses indexOf/lastIndexOf which is O(n).
+    const pathological = '{ ' + '"issues" '.repeat(1000) + '"summary" '.repeat(1000) + '"score"';
+    const start = performance.now();
+    const result = parseReviewOutput(pathological);
+    const elapsed = performance.now() - start;
+
+    // Should complete in well under 100ms (linear scan, not exponential backtracking)
+    expect(elapsed).toBeLessThan(100);
+    // Falls back to raw text since the extracted substring isn't valid JSON
+    expect(result.score).toBe(50);
+  });
+});
+
 describe('handleReview', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -139,6 +171,67 @@ describe('handleReview', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('Connection lost');
+  });
+
+  it('logs info output when logLevel is info', async () => {
+    const infoConfig: ServerConfig = { ...baseConfig, logLevel: 'info' };
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: JSON.stringify({ issues: [], summary: 'ok', score: 90 }),
+      filesChanged: [],
+      commandsRun: [],
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handleReview({ code: 'const x = 1;' }, infoConfig);
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[codex_review] OK'));
+    spy.mockRestore();
+  });
+
+  it('formats error without details', async () => {
+    mockedCallCodex.mockResolvedValue({
+      success: false,
+      events: [],
+      finalMessage: '',
+      filesChanged: [],
+      commandsRun: [],
+      error: { code: 'CODEX_TIMEOUT', message: 'Timeout' },
+    });
+
+    const result = await handleReview({ code: 'x' }, baseConfig);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).not.toContain('Details:');
+  });
+
+  it('formats review with suggestion field', async () => {
+    const reviewJson = JSON.stringify({
+      issues: [
+        {
+          severity: 'high',
+          message: 'SQL injection risk',
+          line: 10,
+          suggestion: 'Use parameterized queries',
+        },
+      ],
+      summary: 'Critical security issue',
+      score: 40,
+    });
+
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: reviewJson,
+      filesChanged: [],
+      commandsRun: [],
+    });
+
+    const result = await handleReview({ code: 'select * from users' }, baseConfig);
+
+    expect(result.content[0].text).toContain('Suggestion: Use parameterized queries');
+    expect(result.content[0].text).toContain('(line 10)');
   });
 
   it('falls back gracefully when Codex returns non-JSON', async () => {

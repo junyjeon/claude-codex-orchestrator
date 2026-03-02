@@ -8,6 +8,14 @@ vi.mock('../../codex/client.js', () => ({
 vi.mock('../../security.js', () => ({
   validateWorkingDir: vi.fn(),
   sanitizeErrorOutput: vi.fn((text: string) => text),
+  sanitizePromptInput: (text: string, _maxLength: number) => text,
+  INPUT_LIMITS: {
+    TASK_DESCRIPTION: 10_000,
+    CONTEXT: 50_000,
+    CODE_REVIEW: 100_000,
+    FILE_PATH: 500,
+    LANGUAGE: 50,
+  },
 }));
 
 import { callCodex } from '../../codex/client.js';
@@ -211,6 +219,85 @@ describe('handleExecute', () => {
       expect.any(String),
       expect.objectContaining({ workingDir: '/home/user/projects/actual-resolved' }),
     );
+  });
+
+  it('logs debug output when logLevel is debug', async () => {
+    const debugConfig: ServerConfig = { ...baseConfig, logLevel: 'debug' };
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: 'ok',
+      filesChanged: [],
+      commandsRun: [],
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handleExecute(
+      { task_description: 'Run', working_dir: '/home/user/projects/app' },
+      debugConfig,
+    );
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[codex_execute] Prompt:'));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[codex_execute] OK'));
+    spy.mockRestore();
+  });
+
+  it('logs info output when logLevel is info', async () => {
+    const infoConfig: ServerConfig = { ...baseConfig, logLevel: 'info' };
+    mockedCallCodex.mockResolvedValue({
+      success: true,
+      events: [],
+      finalMessage: 'ok',
+      filesChanged: ['a.ts'],
+      commandsRun: ['npm test'],
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await handleExecute(
+      { task_description: 'Run', working_dir: '/home/user/projects/app' },
+      infoConfig,
+    );
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('files=1 cmds=1'));
+    spy.mockRestore();
+  });
+
+  it('formats error without details', async () => {
+    mockedCallCodex.mockResolvedValue({
+      success: false,
+      events: [],
+      finalMessage: '',
+      filesChanged: [],
+      commandsRun: [],
+      error: { code: 'CODEX_TIMEOUT', message: 'Timeout' },
+    });
+
+    const result = await handleExecute(
+      { task_description: 'Run', working_dir: '/home/user/projects/app' },
+      baseConfig,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Timeout');
+    expect(result.content[0].text).not.toContain('Details:');
+  });
+
+  it('handles error with no error object (unknown error)', async () => {
+    mockedCallCodex.mockResolvedValue({
+      success: false,
+      events: [],
+      finalMessage: '',
+      filesChanged: [],
+      commandsRun: [],
+    });
+
+    const result = await handleExecute(
+      { task_description: 'Run', working_dir: '/home/user/projects/app' },
+      baseConfig,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Unknown error');
   });
 
   it('defaults sandbox to workspace-write', async () => {

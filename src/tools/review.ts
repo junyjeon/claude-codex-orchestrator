@@ -73,11 +73,14 @@ export function parseReviewOutput(text: string): ReviewOutput {
     /* continue to next strategy */
   }
 
-  // Strategy 2: Extract JSON block from text
-  const jsonMatch = text.match(/\{[\s\S]*"issues"[\s\S]*"summary"[\s\S]*"score"[\s\S]*\}/);
-  if (jsonMatch) {
+  // Strategy 2: Extract JSON block by finding { and } boundaries.
+  // Avoids greedy [\s\S]* regex that risks O(n^4) backtracking.
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = text.slice(firstBrace, lastBrace + 1);
     try {
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(candidate);
       if (isValidReviewOutput(parsed)) return parsed;
     } catch {
       /* continue to next strategy */

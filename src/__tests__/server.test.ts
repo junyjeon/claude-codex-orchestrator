@@ -71,6 +71,42 @@ describe('CodexMCPServer', () => {
     expect(toolConfig.description).toContain('Autonomous task execution');
   });
 
+  it('includes danger-full-access sandbox when allowed', () => {
+    const dangerConfig: ServerConfig = {
+      ...testConfig,
+      security: { ...testConfig.security, allowDangerSandbox: true },
+    };
+    const server = new CodexMCPServer(dangerConfig);
+    const mcpServer = (server as unknown as { server: { registerTool: ReturnType<typeof vi.fn> } })
+      .server;
+    const executeCall = mcpServer.registerTool.mock.calls.find(
+      (c: unknown[]) => c[0] === 'codex_execute',
+    );
+    expect(executeCall).toBeDefined();
+  });
+
+  it('suggest_model handler returns structured result', async () => {
+    const server = new CodexMCPServer(testConfig);
+    const mcpServer = (server as unknown as { server: { registerTool: ReturnType<typeof vi.fn> } })
+      .server;
+    const suggestCall = mcpServer.registerTool.mock.calls.find(
+      (c: unknown[]) => c[0] === 'suggest_model',
+    );
+    const handler = suggestCall?.[2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+    const result = (await handler({
+      task_description: 'Write a utility function',
+      task_type: 'implementation',
+      complexity: 'simple',
+    })) as { content: Array<{ text: string }>; structuredContent: { recommended: string } };
+
+    expect(result.structuredContent.recommended).toBeDefined();
+    expect(result.content[0].text).toBeTruthy();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.recommended).toBeDefined();
+    expect(parsed.confidence).toBeDefined();
+  });
+
   it('starts transport connection', async () => {
     const server = new CodexMCPServer(testConfig);
     await server.start();
@@ -78,5 +114,16 @@ describe('CodexMCPServer', () => {
     const mcpServer = (server as unknown as { server: { connect: ReturnType<typeof vi.fn> } })
       .server;
     expect(mcpServer.connect).toHaveBeenCalled();
+  });
+
+  it('logs startup message when logLevel is info', async () => {
+    const infoConfig: ServerConfig = { ...testConfig, logLevel: 'info' };
+    const server = new CodexMCPServer(infoConfig);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await server.start();
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('v1.0.0 started'));
+    spy.mockRestore();
   });
 });

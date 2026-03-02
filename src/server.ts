@@ -8,10 +8,18 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { initSemaphore } from './codex/client.js';
 import { suggestModel } from './router/suggest.js';
+import { INPUT_LIMITS } from './security.js';
 import { handleExecute } from './tools/execute.js';
 import { handleGenerate } from './tools/generate.js';
 import { handleReview } from './tools/review.js';
-import type { ServerConfig } from './types/index.js';
+import {
+  ApprovalMode,
+  Complexity,
+  ReviewFocus,
+  TaskType,
+  type ServerConfig,
+} from './types/index.js';
+
 
 export class CodexMCPServer {
   private server: McpServer;
@@ -41,12 +49,13 @@ export class CodexMCPServer {
         title: 'Codex Generate',
         description: 'Generate code using Codex CLI (GPT-5.3). Fast first-attempt code generation.',
         inputSchema: z.object({
-          task_description: z.string().min(1).describe('Clear description of the code to generate'),
+          task_description: z.string().min(1).max(INPUT_LIMITS.TASK_DESCRIPTION).describe('Clear description of the code to generate'),
           language: z
             .string()
             .min(1)
+            .max(INPUT_LIMITS.LANGUAGE)
             .describe('Programming language (e.g., "typescript", "python")'),
-          context: z.string().optional().describe('Additional context or constraints'),
+          context: z.string().max(INPUT_LIMITS.CONTEXT).optional().describe('Additional context or constraints'),
           working_dir: z.string().optional().describe('Working directory for project context'),
         }),
       },
@@ -66,10 +75,10 @@ export class CodexMCPServer {
         description:
           'Autonomous task execution using Codex CLI. Runs do-run-inspect loops to complete tasks.',
         inputSchema: z.object({
-          task_description: z.string().min(1).describe('Task to execute autonomously'),
+          task_description: z.string().min(1).max(INPUT_LIMITS.TASK_DESCRIPTION).describe('Task to execute autonomously'),
           working_dir: z.string().min(1).describe('Working directory (required for execution)'),
           approval_mode: z
-            .enum(['untrusted', 'on-failure', 'on-request', 'never'])
+            .nativeEnum(ApprovalMode)
             .optional()
             .describe('Approval mode. Default: on-failure'),
           sandbox: z
@@ -90,10 +99,10 @@ export class CodexMCPServer {
         description:
           'Code review from Codex (GPT-5.3) perspective. Provides a different AI viewpoint.',
         inputSchema: z.object({
-          code: z.string().min(1).describe('Code to review'),
-          file_path: z.string().optional().describe('File path for context'),
+          code: z.string().min(1).max(INPUT_LIMITS.CODE_REVIEW).describe('Code to review'),
+          file_path: z.string().max(INPUT_LIMITS.FILE_PATH).optional().describe('File path for context'),
           review_focus: z
-            .enum(['security', 'performance', 'quality', 'all'])
+            .nativeEnum(ReviewFocus)
             .optional()
             .describe('Review focus area. Default: all'),
           language: z.string().optional().describe('Programming language'),
@@ -111,14 +120,14 @@ export class CodexMCPServer {
         description:
           'Recommend Claude or Codex for a task. Pure rule-based, no API call. Provide task_type for meaningful results (confidence >= 0.6). Description-only calls return low confidence.',
         inputSchema: z.object({
-          task_description: z.string().min(1).describe('Description of the task'),
+          task_description: z.string().min(1).max(INPUT_LIMITS.TASK_DESCRIPTION).describe('Description of the task'),
           task_type: z
-            .enum(['architecture', 'implementation', 'ui', 'review', 'debug', 'refactor'])
+            .nativeEnum(TaskType)
             .optional()
             .describe('Type of task'),
-          context_size: z.number().optional().describe('Estimated context size in tokens'),
+          context_size: z.number().nonnegative().optional().describe('Estimated context size in tokens'),
           complexity: z
-            .enum(['simple', 'moderate', 'complex'])
+            .nativeEnum(Complexity)
             .optional()
             .describe('Task complexity'),
         }),

@@ -50,6 +50,8 @@ export enum TaskType {
   REVIEW = 'review',
   DEBUG = 'debug',
   REFACTOR = 'refactor',
+  SCRIPTING = 'scripting',
+  SECURITY = 'security',
 }
 
 export enum Complexity {

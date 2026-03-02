@@ -63,6 +63,18 @@ const TYPE_ROUTES = {
     reasoning: 'Direct implementation slightly favors Codex speed',
     alternatives: ['Claude may be better if project conventions matter or task is complex'],
   },
+  [TaskType.SCRIPTING]: {
+    recommended: 'codex',
+    confidence: 0.80,
+    reasoning: 'Terminal/scripting is a strong Codex advantage (Terminal-Bench 77.3%)',
+    alternatives: ['Claude may be better for complex multi-step scripts with error handling'],
+  },
+  [TaskType.SECURITY]: {
+    recommended: 'claude',
+    confidence: 0.85,
+    reasoning: 'Security analysis requires deep reasoning and broad context',
+    alternatives: ['Codex can assist with mechanical security checks'],
+  },
 } as const satisfies Record<TaskType, RouteEntry>;
 
 function normalizeContextSize(value: number | undefined): number | undefined {
