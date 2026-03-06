@@ -3,11 +3,11 @@
 ## 프로젝트 개요
 
 - 저장소: claude-codex-orchestrator
-- Claude Code에서 Codex CLI(GPT-5.3)로 작업을 위임하는 MCP 서버
+- Claude Code에서 Codex CLI로 작업을 위임하는 MCP 서버
 
 현재 상태: Node.js 20 + TypeScript 5.8 + MCP SDK 1.26 + Vite 6.3
 
-Claude Opus 4.6과 Codex GPT-5.3의 강점이 다르다. 이 서버는 4개 MCP 도구를 통해 코드 생성, 자율 실행, 코드 리뷰, 모델 추천을 제공한다. 4계층 보안 방어(스키마/경로/프로세스/출력)가 적용되어 있다.
+Claude와 Codex의 강점이 다르다. 이 서버는 4개 MCP 도구를 통해 코드 생성, 자율 실행, 코드 리뷰, 모델 추천을 제공한다. 4계층 보안 방어(스키마/경로/프로세스/출력)가 적용되어 있다. 모델 비교는 [docs/모델비교.md](docs/모델비교.md) 참조.
 
 
 ## 빌드 및 실행

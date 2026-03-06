@@ -1,10 +1,10 @@
 # claude-codex-orchestrator
 
-MCP server for Claude Code + Codex CLI (GPT-5.3) orchestration. 4 specialized tools with task routing intelligence and security hardening.
+MCP server for Claude Code + Codex CLI orchestration. 4 specialized tools with task routing intelligence and security hardening.
 
 ## Overview
 
-Claude Opus 4.6 and Codex GPT-5.3 have different strengths. This MCP server lets Claude Code delegate **self-contained tasks** to Codex while maintaining architectural control. Delegation scope is intentionally narrow: only tasks that don't need project conventions benefit from Codex generation. See [docs/모델비교.md](docs/모델비교.md) for detailed benchmarks and rationale.
+Claude and Codex have different strengths. This MCP server lets Claude Code delegate **self-contained tasks** to Codex while maintaining architectural control. Delegation scope is intentionally narrow: only tasks that don't need project conventions benefit from Codex generation. See [docs/모델비교.md](docs/모델비교.md) for detailed model comparison and benchmarks.
 
 - `codex_generate` - Code generation for self-contained tasks (bash scripts, utility functions, scaffolds)
 - `codex_execute` - Autonomous task execution (do-run-inspect loop)
@@ -158,7 +158,7 @@ Autonomous task execution with do-run-inspect loop.
 
 ### codex_review
 
-Code review from Codex (GPT-5.3) perspective.
+Code review from Codex perspective.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

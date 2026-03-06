@@ -47,7 +47,7 @@ export class CodexMCPServer {
       'codex_generate',
       {
         title: 'Codex Generate',
-        description: 'Generate code using Codex CLI (GPT-5.3). Fast first-attempt code generation.',
+        description: 'Generate code using Codex CLI. Fast first-attempt code generation.',
         inputSchema: z.object({
           task_description: z.string().min(1).max(INPUT_LIMITS.TASK_DESCRIPTION).describe('Clear description of the code to generate'),
           language: z
@@ -97,7 +97,7 @@ export class CodexMCPServer {
       {
         title: 'Codex Review',
         description:
-          'Code review from Codex (GPT-5.3) perspective. Provides a different AI viewpoint.',
+          'Code review from Codex perspective. Provides a different AI viewpoint.',
         inputSchema: z.object({
           code: z.string().min(1).max(INPUT_LIMITS.CODE_REVIEW).describe('Code to review'),
           file_path: z.string().max(INPUT_LIMITS.FILE_PATH).optional().describe('File path for context'),
