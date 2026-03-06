@@ -21,12 +21,12 @@ const ServerConfigSchema = z.object({
   timeout: z
     .number()
     .min(1000, 'Timeout must be at least 1000ms')
-    .max(300000, 'Timeout must be at most 300000ms')
+    .max(1800000, 'Timeout must be at most 1800000ms')
     .default(30000),
   executeTimeout: z
     .number()
     .min(5000, 'Execute timeout must be at least 5000ms')
-    .max(600000, 'Execute timeout must be at most 600000ms')
+    .max(1800000, 'Execute timeout must be at most 1800000ms')
     .default(120000),
   security: z
     .object({

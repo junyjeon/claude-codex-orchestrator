@@ -17,9 +17,9 @@ export async function handleReview(
   try {
     const prompt = buildReviewPrompt(input);
 
-    // Adaptive timeout: base + 30s per 10K chars, capped at executeTimeout max (600s)
+    // Adaptive timeout: base + 30s per 10K chars, capped at 30min
     const adaptiveTimeout = Math.min(
-      600_000,
+      1_800_000,
       Math.max(
         config.executeTimeout,
         config.executeTimeout + Math.floor(input.code.length / 10_000) * 30_000,
