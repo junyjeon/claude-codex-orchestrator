@@ -144,7 +144,7 @@ function formatError(
   error: { code: string; message: string; details?: string } | undefined,
 ): CallToolResult {
   const errorText = error
-    ? `${error.message}${error.details ? `\nDetails: ${sanitizeErrorOutput(error.details)}` : ''}\nCode: ${error.code}`
+    ? `${sanitizeErrorOutput(error.message)}${error.details ? `\nDetails: ${sanitizeErrorOutput(error.details)}` : ''}\nCode: ${error.code}`
     : 'Unknown error';
   return {
     content: [{ type: 'text', text: `Codex generation failed: ${errorText}` }],

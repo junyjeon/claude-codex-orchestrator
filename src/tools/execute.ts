@@ -79,7 +79,7 @@ export async function handleExecute(
 
     const error = result.error;
     const errorText = error
-      ? `${error.message}${error.details ? `\nDetails: ${sanitizeErrorOutput(error.details)}` : ''}\nCode: ${error.code}`
+      ? `${sanitizeErrorOutput(error.message)}${error.details ? `\nDetails: ${sanitizeErrorOutput(error.details)}` : ''}\nCode: ${error.code}`
       : 'Unknown error';
     return {
       content: [{ type: 'text', text: `Codex execution failed: ${errorText}` }],

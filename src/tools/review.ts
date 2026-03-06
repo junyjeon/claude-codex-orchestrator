@@ -17,12 +17,23 @@ export async function handleReview(
   try {
     const prompt = buildReviewPrompt(input);
 
+    // Adaptive timeout: base + 30s per 10K chars, capped at executeTimeout max (600s)
+    const adaptiveTimeout = Math.min(
+      600_000,
+      Math.max(
+        config.executeTimeout,
+        config.executeTimeout + Math.floor(input.code.length / 10_000) * 30_000,
+      ),
+    );
+
     if (config.logLevel === 'debug') {
-      console.error(`[codex_review] Reviewing ${input.file_path ?? 'inline code'}`);
+      console.error(
+        `[codex_review] Reviewing ${input.file_path ?? 'inline code'} (${input.code.length} chars, timeout=${adaptiveTimeout}ms)`,
+      );
     }
 
     const result = await callCodex(prompt, {
-      timeout: config.executeTimeout,
+      timeout: adaptiveTimeout,
       json: true,
       skipGitRepoCheck: true,
     });
@@ -43,7 +54,7 @@ export async function handleReview(
 
     const error = result.error;
     const errorText = error
-      ? `${error.message}${error.details ? `\nDetails: ${sanitizeErrorOutput(error.details)}` : ''}\nCode: ${error.code}`
+      ? `${sanitizeErrorOutput(error.message)}${error.details ? `\nDetails: ${sanitizeErrorOutput(error.details)}` : ''}\nCode: ${error.code}`
       : 'Unknown error';
     return {
       content: [{ type: 'text', text: `Codex review failed: ${errorText}` }],
@@ -98,7 +109,18 @@ export function parseReviewOutput(text: string): ReviewOutput {
 function isValidReviewOutput(obj: unknown): obj is ReviewOutput {
   if (!obj || typeof obj !== 'object') return false;
   const o = obj as Record<string, unknown>;
-  return Array.isArray(o.issues) && typeof o.summary === 'string' && typeof o.score === 'number';
+  if (!Array.isArray(o.issues) || typeof o.summary !== 'string' || typeof o.score !== 'number') {
+    return false;
+  }
+  // Normalize issues: keep only well-formed entries
+  o.issues = (o.issues as unknown[]).filter(
+    (item): item is Record<string, unknown> =>
+      !!item &&
+      typeof item === 'object' &&
+      typeof (item as Record<string, unknown>).severity === 'string' &&
+      typeof (item as Record<string, unknown>).message === 'string',
+  );
+  return true;
 }
 
 function formatReviewText(review: ReviewOutput): string {
